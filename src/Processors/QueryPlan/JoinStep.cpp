@@ -1,7 +1,11 @@
 #include <Processors/QueryPlan/JoinStep.h>
+
 #include <QueryPipeline/QueryPipelineBuilder.h>
 #include <Processors/Transforms/JoiningTransform.h>
+#include <Processors/QueryPlan/SortingStep.h>
 #include <Interpreters/IJoin.h>
+#include <Interpreters/FullSortingMergeJoin.h>
+
 #include <Common/typeid_cast.h>
 
 namespace DB
@@ -28,17 +32,74 @@ JoinStep::JoinStep(
     };
 }
 
-QueryPipelineBuilderPtr JoinStep::updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings &)
+static SortDescription getSortDescription(const Names & key_names)
+{
+    SortDescription sort_description;
+    sort_description.reserve(key_names.size());
+    NameSet used_keys;
+    for (const auto & key_name : key_names)
+    {
+        if (!used_keys.insert(key_name).second)
+            /// Skip duplicate keys
+            continue;
+
+        sort_description.emplace_back(key_name);
+    }
+    return sort_description;
+}
+
+QueryPipelineBuilderPtr JoinStep::updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings & build_settings)
 {
     if (pipelines.size() != 2)
         throw Exception(ErrorCodes::LOGICAL_ERROR, "JoinStep expect two input steps");
 
-    if (join->pipelineType() == JoinPipelineType::YShaped)
+    if (const auto * sorting_join = getSortingJoin())
     {
+        chassert(join->pipelineType() == JoinPipelineType::YShaped);
+
+        auto add_sorting = [&build_settings, &sorting_join] (
+            std::unique_ptr<SortingStep> & sorting_step,
+            QueryPipelineBuilder & pipeline,
+            const DataStream & input_stream,
+            JoinTableSide join_pos)
+        {
+            SortDescription sort_description = getSortDescription(sorting_join->getKeyNames(join_pos));
+
+            sorting_step = std::make_unique<SortingStep>(
+                input_stream,
+                sort_description,
+                /* limit */ 0,
+                /* settings */ sorting_join->getSortSettings(),
+                /* optimize_sorting_by_input_stream_properties */ false);
+
+            const SortDescription & prefix_sort_description = sorting_join->getPrefixSortDesctiption(join_pos);
+            if (!prefix_sort_description.empty())
+            {
+                LOG_DEBUG(&Poco::Logger::get("JoinStep"), "Finish sort {} side of JOIN by [{}] with prefix [{}]",
+                    join_pos, dumpSortDescription(sort_description), dumpSortDescription(prefix_sort_description));
+
+                sorting_step->convertToFinishSorting(prefix_sort_description);
+            }
+            else
+            {
+                LOG_DEBUG(&Poco::Logger::get("JoinStep"), "Sort {} side of JOIN by [{}]",
+                    join_pos, dumpSortDescription(sort_description), dumpSortDescription(prefix_sort_description));
+            }
+
+            sorting_step->transformPipeline(pipeline, build_settings);
+        };
+
+        add_sorting(left_sorting, *pipelines[0], input_streams[0], JoinTableSide::Left);
+        add_sorting(right_sorting, *pipelines[1], input_streams[1], JoinTableSide::Right);
+
         auto joined_pipeline = QueryPipelineBuilder::joinPipelinesYShaped(
             std::move(pipelines[0]), std::move(pipelines[1]), join, output_stream->header, max_block_size, &processors);
         joined_pipeline->resize(max_streams);
         return joined_pipeline;
+    }
+    else if (join->pipelineType() == JoinPipelineType::YShaped)
+    {
+        throw Exception(ErrorCodes::LOGICAL_ERROR, "Unexpected join pipeline type for non sorting join");
     }
 
     return QueryPipelineBuilder::joinPipelinesRightLeft(
@@ -76,6 +137,11 @@ void JoinStep::updateInputStream(const DataStream & new_input_stream_, size_t id
     {
         input_streams = {input_streams.at(0), new_input_stream_};
     }
+}
+
+FullSortingMergeJoin * JoinStep::getSortingJoin()
+{
+    return dynamic_cast<FullSortingMergeJoin *>(join.get());
 }
 
 static ITransformingStep::Traits getStorageJoinTraits()

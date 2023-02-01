@@ -1486,24 +1486,6 @@ void InterpreterSelectQuery::executeImpl(QueryPlan & query_plan, std::optional<P
                     if (!joined_plan)
                         throw Exception(ErrorCodes::LOGICAL_ERROR, "There is no joined plan for query");
 
-                    auto add_sorting = [&settings, this] (QueryPlan & plan, const Names & key_names, JoinTableSide join_pos)
-                    {
-                        SortDescription order_descr;
-                        order_descr.reserve(key_names.size());
-                        for (const auto & key_name : key_names)
-                            order_descr.emplace_back(key_name);
-
-                        SortingStep::Settings sort_settings(*context);
-
-                        auto sorting_step = std::make_unique<SortingStep>(
-                            plan.getCurrentDataStream(),
-                            std::move(order_descr),
-                            0 /* LIMIT */, sort_settings,
-                            settings.optimize_sorting_by_input_stream_properties);
-                        sorting_step->setStepDescription(fmt::format("Sort {} before JOIN", join_pos));
-                        plan.addStep(std::move(sorting_step));
-                    };
-
                     auto crosswise_connection = CreateSetAndFilterOnTheFlyStep::createCrossConnection();
                     auto add_create_set = [&settings, crosswise_connection](QueryPlan & plan, const Names & key_names, JoinTableSide join_pos)
                     {
@@ -1534,9 +1516,6 @@ void InterpreterSelectQuery::executeImpl(QueryPlan & query_plan, std::optional<P
                             if (isInnerOrRight(join_kind))
                                 left_set->setFiltering(right_set->getSet());
                         }
-
-                        add_sorting(query_plan, join_clause.key_names_left, JoinTableSide::Left);
-                        add_sorting(*joined_plan, join_clause.key_names_right, JoinTableSide::Right);
                     }
 
                     QueryPlanStepPtr join_step = std::make_unique<JoinStep>(

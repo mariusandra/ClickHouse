@@ -680,25 +680,6 @@ JoinTreeQueryPlan buildQueryPlanForJoinNode(const QueryTreeNodePtr & join_table_
     }
     else
     {
-        auto add_sorting = [&] (QueryPlan & plan, const Names & key_names, JoinTableSide join_table_side)
-        {
-            SortDescription sort_description;
-            sort_description.reserve(key_names.size());
-            for (const auto & key_name : key_names)
-                sort_description.emplace_back(key_name);
-
-            SortingStep::Settings sort_settings(*query_context);
-
-            auto sorting_step = std::make_unique<SortingStep>(
-                plan.getCurrentDataStream(),
-                std::move(sort_description),
-                0 /*limit*/,
-                sort_settings,
-                settings.optimize_sorting_by_input_stream_properties);
-            sorting_step->setStepDescription(fmt::format("Sort {} before JOIN", join_table_side));
-            plan.addStep(std::move(sorting_step));
-        };
-
         auto crosswise_connection = CreateSetAndFilterOnTheFlyStep::createCrossConnection();
         auto add_create_set = [&settings, crosswise_connection](QueryPlan & plan, const Names & key_names, JoinTableSide join_table_side)
         {
@@ -731,9 +712,6 @@ JoinTreeQueryPlan buildQueryPlanForJoinNode(const QueryTreeNodePtr & join_table_
                 if (isInnerOrRight(join_kind))
                     left_set->setFiltering(right_set->getSet());
             }
-
-            add_sorting(left_plan, join_clause.key_names_left, JoinTableSide::Left);
-            add_sorting(right_plan, join_clause.key_names_right, JoinTableSide::Right);
         }
 
         auto join_pipeline_type = join_algorithm->pipelineType();
