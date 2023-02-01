@@ -33,6 +33,7 @@
 #include <Interpreters/CrossToInnerJoinVisitor.h>
 #include <Interpreters/TableJoin.h>
 #include <Interpreters/JoinedTables.h>
+#include <Interpreters/FullSortingMergeJoin.h>
 #include <Interpreters/OpenTelemetrySpanLog.h>
 #include <Interpreters/QueryAliasesVisitor.h>
 #include <Interpreters/QueryLog.h>
@@ -1516,6 +1517,12 @@ void InterpreterSelectQuery::executeImpl(QueryPlan & query_plan, std::optional<P
                             if (isInnerOrRight(join_kind))
                                 left_set->setFiltering(right_set->getSet());
                         }
+
+                        auto sorting_join = std::dynamic_pointer_cast<FullSortingMergeJoin>(expressions.join);
+                        if (!sorting_join)
+                            throw Exception(ErrorCodes::LOGICAL_ERROR, "Y-shaped join is not FullSortingMergeJoin");
+                        query_plan.addStep(std::make_unique<SortForJoinStep>(query_plan.getCurrentDataStream(), sorting_join, JoinTableSide::Left));
+                        joined_plan->addStep(std::make_unique<SortForJoinStep>(joined_plan->getCurrentDataStream(), sorting_join, JoinTableSide::Right));
                     }
 
                     QueryPlanStepPtr join_step = std::make_unique<JoinStep>(
