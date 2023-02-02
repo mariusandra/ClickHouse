@@ -203,7 +203,7 @@ void SortForJoinStep::transformPipeline(QueryPipelineBuilder & pipeline, const B
     else
     {
         LOG_DEBUG(&Poco::Logger::get("JoinStep"), "Sort {} side of JOIN by [{}]",
-            join_side, dumpSortDescription(sort_description), dumpSortDescription(prefix_sort_description));
+            join_side, dumpSortDescription(sort_description));
     }
 
     sorting_step->setStepDescription("Sorting for JOIN");

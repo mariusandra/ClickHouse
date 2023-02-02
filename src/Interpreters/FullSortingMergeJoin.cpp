@@ -3,6 +3,11 @@
 namespace DB
 {
 
+namespace ErrorCodes
+{
+    extern const int LOGICAL_ERROR;
+}
+
 static void assertIsPermutation(const std::vector<size_t> & permutation)
 {
     std::set<size_t> sorted(permutation.begin(), permutation.end());
