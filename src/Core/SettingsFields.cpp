@@ -54,7 +54,6 @@ namespace
             return applyVisitor(FieldVisitorConvertToNumber<T>(), f);
     }
 
-#ifndef KEEPER_STANDALONE_BUILD
     Map stringToMap(const String & str)
     {
         /// Allow empty string as an empty map
@@ -71,7 +70,7 @@ namespace
         return (*column)[0].safeGet<Map>();
     }
 
-    Map fieldToMap(const Field & f)
+    [[maybe_unused]] Map fieldToMap(const Field & f)
     {
         if (f.getType() == Field::Types::String)
         {
@@ -82,7 +81,6 @@ namespace
 
         return f.safeGet<const Map &>();
     }
-#endif
 
 }
 
