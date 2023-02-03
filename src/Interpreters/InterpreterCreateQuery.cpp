@@ -1265,6 +1265,8 @@ bool InterpreterCreateQuery::doCreateTable(ASTCreateQuery & create,
         return true;
     }
 
+    auto test = DatabaseCatalog::instance().getExclusiveDDLGuardForDatabase(create.getDatabase());
+
     if (!ddl_guard)
         ddl_guard = DatabaseCatalog::instance().getDDLGuard(create.getDatabase(), create.getTable());
 
